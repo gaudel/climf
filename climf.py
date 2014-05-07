@@ -10,7 +10,7 @@ Yue Shi, Martha Larson, Alexandros Karatzoglou, Nuria Oliver, Linas Baltrunas, A
 ACM RecSys 2012
 """
 
-from math import exp, log
+from math import exp, log, copysign
 import numpy as np
 
 def g(x):
@@ -48,10 +48,10 @@ def objective(data,U,V,lbda):
     F = -0.5*lbda*(np.sum(U*U)+np.sum(V*V))
     for i in xrange(len(U)):
         f = precompute_f(data,U,V,i)
-        for j in f:
-            F += log(g(f[j]))
-            for k in f:
-                F += log(1-g(f[k]-f[j]))
+        for fj in f.itervalues():
+            F += log(g(fj))
+            for fk in f.itervalues():
+                F += log(1-g(fk-fj))
     return F
 
 def update(data,U,V,lbda,gamma):
@@ -66,14 +66,24 @@ def update(data,U,V,lbda,gamma):
     for i in xrange(len(U)):
         dU = -lbda*U[i]
         f = precompute_f(data,U,V,i)
-        for j in f:
-            dV = g(-f[j])-lbda*V[j]
-            for k in f:
-                dV += dg(f[j]-f[k])*(1/(1-g(f[k]-f[j]))-1/(1-g(f[j]-f[k])))*U[i]
+        for j,fj in f.iteritems():
+            if fj > 700:
+                dV = -lbda*V[j]
+            else:
+                dV = g(-fj)-lbda*V[j]
+            for fk in f.itervalues():
+                if abs(fj-fk)<30:
+                    dV += dg(fj-fk)*(1/(1-g(fk-fj))-1/(1-g(fj-fk)))*U[i]
+                else : 
+                    dV += copysign(1,fk-fj)*U[i]
             V[j] += gamma*dV
-            dU += g(-f[j])*V[j]
-            for k in f:
-                dU += (V[j]-V[k])*dg(f[k]-f[j])/(1-g(f[k]-f[j]))
+            if fj < 700:
+                dU += g(-fj)*V[j]
+            for k,fk in f.iteritems():
+                if fk-fj>35:
+                    dU += V[j]-V[k]
+                elif fk-fj>-700:
+                    dU += (V[j]-V[k])*dg(fk-fj)/(1-g(fk-fj))
         U[i] += gamma*dU
 
 def compute_mrr(data,U,V,test_users=None):
