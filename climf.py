@@ -10,110 +10,49 @@ Yue Shi, Martha Larson, Alexandros Karatzoglou, Nuria Oliver, Linas Baltrunas, A
 ACM RecSys 2012
 """
 
-from math import exp, log, copysign
+from math import exp, log
 import numpy as np
+import random
+from climf_fast import climf_fast, CSRDataset, compute_mrr_fast
 
-def g(x):
-    """sigmoid function"""
-    return 1/(1+exp(-x))
+def _make_dataset(X):
+    """Create ``Dataset`` abstraction for sparse and dense inputs."""
+    y_i = np.ones(X.shape[0], dtype=np.float64, order='C')
+    sample_weight = np.ones(X.shape[0], dtype=np.float64, order='C') # ignore sample weight for the moment
+    dataset = CSRDataset(X.data, X.indptr, X.indices, y_i, sample_weight)
+    return dataset
 
-def dg(x):
-    """derivative of sigmoid function"""
-    return exp(x)/(1+exp(x))**2
+class CLiMF:
+    def __init__(self, dim=10, lbda=0.001, gamma=0.0001, max_iters=5, verbose=True,
+                 shuffle=True, seed=28):
+        self.dim = dim
+        self.lbda = lbda
+        self.gamma = gamma
+        self.max_iters = max_iters
+        self.verbose = verbose
+        self.shuffle = 1 if shuffle else 0
+        self.seed = seed
 
-def precompute_f(data,U,V,i):
-    """precompute f[j] = <U[i],V[j]>
-    params:
-      data: scipy csr sparse matrix containing user->(item,count)
-      U   : user factors
-      V   : item factors
-      i   : item of interest
-    returns:
-      dot products <U[i],V[j]> for all j in data[i]
-    """
-    items = data[i].indices
-    f = dict((j,np.dot(U[i],V[j])) for j in items)
-    return f
+    def fit(self, X):
+        data = _make_dataset(X)
+        self.U = 0.01*np.random.random_sample(size=(X.shape[0], self.dim))
+        self.V = 0.01*np.random.random_sample(size=(X.shape[1], self.dim))
 
-def objective(data,U,V,lbda):
-    """compute objective function F(U,V)
-    params:
-      data: scipy csr sparse matrix containing user->(item,count)
-      U   : user factors
-      V   : item factors
-      lbda: regularization constant lambda
-    returns:
-      current value of F(U,V)
-    """
-    F = -0.5*lbda*(np.sum(U*U)+np.sum(V*V))
-    for i in xrange(len(U)):
-        f = precompute_f(data,U,V,i)
-        for fj in f.itervalues():
-            F += log(g(fj))
-            for fk in f.itervalues():
-                F += log(1-g(fk-fj))
-    return F
+        num_train_sample_users = min(X.shape[0],100)
+        train_sample_users = np.array(random.sample(xrange(X.shape[0]),num_train_sample_users), dtype=np.int32)
+        sample_user_data = np.array([np.array(X.getrow(i).indices, dtype=np.int32) for i in train_sample_users])
+        
+        climf_fast(data, self.U, self.V, self.lbda, self.gamma, self.dim, 
+                   self.max_iters, self.shuffle, self.seed, train_sample_users, sample_user_data)
 
-def update(data,U,V,lbda,gamma):
-    """update user/item factors using stochastic gradient ascent
-    params:
-      data : scipy csr sparse matrix containing user->(item,count)
-      U    : user factors
-      V    : item factors
-      lbda : regularization constant lambda
-      gamma: learning rate
-    """
-    for i in xrange(len(U)):
-        dU = -lbda*U[i]
-        f = precompute_f(data,U,V,i)
-        for j,fj in f.iteritems():
-            if fj > 700:
-                dV = -lbda*V[j]
-            else:
-                dV = g(-fj)-lbda*V[j]
-            for fk in f.itervalues():
-                if abs(fj-fk)<30:
-                    dV += dg(fj-fk)*(1/(1-g(fk-fj))-1/(1-g(fj-fk)))*U[i]
-                else : 
-                    dV += copysign(1,fk-fj)*U[i]
-            V[j] += gamma*dV
-            if fj < 700:
-                dU += g(-fj)*V[j]
-            for k,fk in f.iteritems():
-                if fk-fj>35:
-                    dU += V[j]-V[k]
-                elif fk-fj>-700:
-                    dU += (V[j]-V[k])*dg(fk-fj)/(1-g(fk-fj))
-        U[i] += gamma*dU
-
-def compute_mrr(data,U,V,test_users=None):
-    """compute average Mean Reciprocal Rank of data according to factors
-    params:
-      data      : scipy csr sparse matrix containing user->(item,count)
-      U         : user factors
-      V         : item factors
-      test_users: optional subset of users over which to compute MRR
-    returns:
-      the mean MRR over all users in data
-    """
-    mrr = []
-    if test_users is None:
-        test_users = range(len(U))
-    for ix,i in enumerate(test_users):
-        items = set(data[i].indices)
-        predictions = np.sum(np.tile(U[i],(len(V),1))*V,axis=1)
-        for rank,item in enumerate(np.argsort(predictions)[::-1]):
-            if item in items:
-                mrr.append(1.0/(rank+1))
-                break
-    assert(len(mrr) == len(test_users))
-    return np.mean(mrr)
-
+    def compute_mrr(self, testdata):
+        return compute_mrr_fast(np.array(range(testdata.shape[0]), dtype=np.int32), np.array([np.array(testdata.getrow(i).indices, dtype=np.int32) for i in range(testdata.shape[0])]), self.U, self.V)
+        
 if __name__=='__main__':
 
     from optparse import OptionParser
-    from scipy.io.mmio import mmread
     import random
+    from scipy.io.mmio import mmread
 
     parser = OptionParser()
     parser.add_option('--train',dest='train',help='training dataset (matrixmarket format)')
@@ -132,24 +71,18 @@ if __name__=='__main__':
     if opts.test:
         testdata = mmread(opts.test).tocsr()
 
-    U = 0.01*np.random.random_sample((data.shape[0],opts.D))
-    V = 0.01*np.random.random_sample((data.shape[1],opts.D))
 
-    num_train_sample_users = min(data.shape[0],1000)
-    train_sample_users = random.sample(xrange(data.shape[0]),num_train_sample_users)
-    print 'train mrr = {0:.4f}'.format(compute_mrr(data,U,V,train_sample_users))
+    cf = CLiMF(lbda=opts.lbda, gamma=opts.gamma, dim=opts.D, max_iters=opts.max_iters)
+    cf.fit(data)
+#    if opts.test:
+#        num_test_sample_users = min(testdata.shape[0],1000)
+#        test_sample_users = random.sample(xrange(testdata.shape[0]),num_test_sample_users)
+#        print 'test mrr  = {0:.4f}'.format(compute_mrr(testdata,U,V,test_sample_users))
+#    in for-loop
+#        if opts.test:
+#            print 'test mrr  = {0:.4f}'.format(compute_mrr(testdata,U,V,test_sample_users))
+
     if opts.test:
-        num_test_sample_users = min(testdata.shape[0],1000)
-        test_sample_users = random.sample(xrange(testdata.shape[0]),num_test_sample_users)
-        print 'test mrr  = {0:.4f}'.format(compute_mrr(testdata,U,V,test_sample_users))
-
-    for iter in xrange(opts.max_iters):
-        update(data,U,V,opts.lbda,opts.gamma)
-        print 'iteration {0}:'.format(iter+1)
-        print 'objective = {0:.4f}'.format(objective(data,U,V,opts.lbda))
-        print 'train mrr = {0:.4f}'.format(compute_mrr(data,U,V,train_sample_users))
-        if opts.test:
-            print 'test mrr  = {0:.4f}'.format(compute_mrr(testdata,U,V,test_sample_users))
-
-    print 'U',U
-    print 'V',V
+        print "Test MRR: %.8f" % cf.compute_mrr(testdata)
+    print 'U',cf.U
+    print 'V',cf.V

@@ -15,3 +15,8 @@ To run on the supplied Epinions dataset:
 
     tar xzvf epinions.tar.gz
     python climf.py --train EP25_UPL5_train.mtx --test EP25_UPL5_test.mtx 
+
+
+Original implementation : https://github.com/gamboviol/climf (Mark Levy)
+cython version : https://github.com/coreylynch/pyCLiMF (Corey Lynch)
+current version : https://github.com/gaudel/climf (Romaric Gaudel, Charanpal Dhanjal)
