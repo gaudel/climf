@@ -13,7 +13,7 @@ ACM RecSys 2012
 from math import exp, log
 import numpy as np
 import random
-from climf_fast import climf_fast, CSRDataset, compute_mrr_fast
+from climf_fast import climf_fast, safe_climf_fast, CSRDataset, compute_mrr_fast
 
 def _make_dataset(X):
     """Create ``Dataset`` abstraction for sparse and dense inputs."""
@@ -33,7 +33,7 @@ class CLiMF:
         self.shuffle = 1 if shuffle else 0
         self.seed = seed
 
-    def fit(self, X):
+    def fit(self, X, safe=False):
         data = _make_dataset(X)
         self.U = 0.01*np.random.random_sample(size=(X.shape[0], self.dim))
         self.V = 0.01*np.random.random_sample(size=(X.shape[1], self.dim))
@@ -42,7 +42,11 @@ class CLiMF:
         train_sample_users = np.array(random.sample(xrange(X.shape[0]),num_train_sample_users), dtype=np.int32)
         sample_user_data = np.array([np.array(X.getrow(i).indices, dtype=np.int32) for i in train_sample_users])
         
-        climf_fast(data, self.U, self.V, self.lbda, self.gamma, self.dim, 
+        if not safe :
+            climf_fast(data, self.U, self.V, self.lbda, self.gamma, self.dim, 
+                   self.max_iters, self.shuffle, self.seed, train_sample_users, sample_user_data)
+        else :
+            safe_climf_fast(data, self.U, self.V, self.lbda, self.gamma, self.dim, 
                    self.max_iters, self.shuffle, self.seed, train_sample_users, sample_user_data)
 
     def compute_mrr(self, testdata):
@@ -61,7 +65,8 @@ if __name__=='__main__':
     parser.add_option('-l','--lambda',dest='lbda',type='float',default=0.001,help='regularization constant lambda (default: %default)')
     parser.add_option('-g','--gamma',dest='gamma',type='float',default=0.0001,help='gradient ascent learning rate gamma (default: %default)')
     parser.add_option('--max_iters',dest='max_iters',type='int',default=25,help='max iterations (default: %default)')
-
+    parser.add_option("--safe", action="store_true", dest="safe",help='use safe version of climf (default: %default)')
+    
     (opts,args) = parser.parse_args()
     if not opts.train or not opts.D or not opts.lbda or not opts.gamma:
         parser.print_help()
@@ -73,7 +78,7 @@ if __name__=='__main__':
 
 
     cf = CLiMF(lbda=opts.lbda, gamma=opts.gamma, dim=opts.D, max_iters=opts.max_iters)
-    cf.fit(data)
+    cf.fit(data, safe=opts.safe)
 #    if opts.test:
 #        num_test_sample_users = min(testdata.shape[0],1000)
 #        test_sample_users = random.sample(xrange(testdata.shape[0]),num_test_sample_users)

@@ -8,7 +8,7 @@
 
 import numpy as np
 import scipy 
-from libc.math cimport exp, log, pow
+from libc.math cimport exp, log, pow, copysign
 cimport numpy as np
 cimport cython
 
@@ -171,7 +171,108 @@ def climf_fast(CSRDataset dataset,
                 U[i, idx] += gamma * dU[idx]
 
         print 'iteration {0}:'.format(t+1)
-        print 'train mrr = {0:.8f}'.format(compute_mrr_fast(sample_user_ids, sample_user_data, U, V))
+#        print 'train mrr = {0:.8f}'.format(compute_mrr_fast(sample_user_ids, sample_user_data, U, V))
+
+
+def safe_climf_fast(CSRDataset dataset,
+               np.ndarray[DOUBLE, ndim=2, mode='c'] U,
+               np.ndarray[DOUBLE, ndim=2, mode='c'] V,
+               double lbda,
+               double gamma,
+               int n_factors,
+               int n_iter,
+               int shuffle,
+               int seed,
+               np.ndarray[int, ndim=1, mode='c'] sample_user_ids,
+               np.ndarray sample_user_data):
+
+    # get the data information into easy vars
+    cdef Py_ssize_t n_samples = dataset.n_samples
+    cdef Py_ssize_t n_users = U.shape[0]
+    cdef Py_ssize_t n_items = V.shape[0]
+
+    cdef np.ndarray[DOUBLE, ndim=1, mode='c'] f
+
+    cdef DOUBLE * x_data_ptr = NULL
+    cdef INTEGER * x_ind_ptr = NULL
+
+    # helper variable
+    cdef int xnnz
+    cdef double eta = 0.0
+    cdef double p = 0.0
+    cdef DOUBLE y = 0.0
+    cdef DOUBLE sample_weight = 1.0
+    cdef unsigned int i = 0
+    cdef unsigned int t = 0
+    cdef unsigned int j = 0
+    cdef unsigned int k = 0
+    cdef unsigned int idx = 0
+    cdef unsigned int idx_j = 0
+    cdef unsigned int idx_k = 0
+    cdef np.ndarray[DOUBLE, ndim=1, mode='c'] dU = np.zeros(n_factors, dtype=np.float64, order="c")
+    cdef np.ndarray[DOUBLE, ndim=1, mode='c'] dV = np.zeros(n_factors, dtype=np.float64, order="c")
+    cdef DOUBLE dVUpdate = 0.0
+    cdef DOUBLE g_minus_f_j = 0.0
+
+    for t in range(n_iter):
+        if shuffle > 0:
+            dataset.shuffle(seed)
+
+        for i in range(n_users):
+            dataset.next( & x_data_ptr, & x_ind_ptr, & xnnz, & y,
+                             & sample_weight)
+
+            # dU = -lbda * U[i]
+            for idx in range(n_factors):
+                dU[idx] = -lbda * U[i, idx]
+
+            f = precompute_f(U, V, x_ind_ptr, xnnz, n_factors, i)
+
+            for j in range(xnnz):
+                idx_j = x_ind_ptr[j]
+                if f[j] < 700:
+                    # dV = g(-f[j])-lbda*V[j]
+                    g_minus_f_j = g(-f[j])
+                    for idx in range(n_factors):
+                         dV[idx] = g_minus_f_j - lbda * V[idx_j, idx]
+                else:
+                    # dV = -lbda*V[j]
+                    for idx in range(n_factors):
+                         dV[idx] = lbda * V[idx_j, idx]
+
+                for k in range(xnnz):
+                    # dV += dg(f[j]-f[k])*(1/(1-g(f[k]-f[j]))-1/(1-g(f[j]-f[k])))*U[i]
+                    # or dV += copysign(1,f[k]-f[j])*U[i]
+                    if abs(f[j]-f[k])<30:
+                        dVUpdate = dg(f[j]-f[k])*(1/(1-g(f[k]-f[j]))-1/(1-g(f[j]-f[k])))
+                    else : 
+                        dVUpdate = copysign(1,f[k]-f[j])
+                    for idx in range(n_factors):
+                        dV[idx] += dVUpdate * U[i, idx]
+                    
+                # V[j] += gamma*dV
+                for idx in range(n_factors):
+                    V[idx_j, idx] += gamma * dV[idx]
+                if f[j] < 700:
+                    # dU += g(-f[j])*V[j]
+                    for idx in range(n_factors):
+                        dU[idx] += g_minus_f_j * V[idx_j, idx]
+                for k in range(xnnz):
+                    idx_k = x_ind_ptr[k]
+                    if f[k]-f[j]>35:
+                        # dU += V[j]-V[k]
+                        for idx in range(n_factors):
+                            dU[idx] += (V[idx_j, idx] - V[idx_k, idx])
+                    elif f[k]-f[j]>-700:
+                        # dU += (V[j]-V[k])*dg(f[k]-f[j])/(1-g(f[k]-f[j]))
+                        for idx in range(n_factors):
+                            dU[idx] += (V[idx_j, idx] - V[idx_k, idx]) * dg(f[k]-f[j])/(1-g(f[k]-f[j]))
+            # U[i] += gamma*dU
+            for idx in range(n_factors):
+                U[i, idx] += gamma * dU[idx]
+
+        print 'iteration {0}:'.format(t+1)
+#        print 'train mrr = {0:.8f}'.format(compute_mrr_fast(sample_user_ids, sample_user_data, U, V))
 
 
 cdef class CSRDataset:
