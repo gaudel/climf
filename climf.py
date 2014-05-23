@@ -44,10 +44,10 @@ class CLiMF:
         
         if not safe :
             climf_fast(data, self.U, self.V, self.lbda, self.gamma, self.dim, 
-                   self.max_iters, self.shuffle, self.seed, train_sample_users, sample_user_data)
+                   self.max_iters, self.shuffle, self.seed, train_sample_users, sample_user_data, 1)
         else :
             safe_climf_fast(data, self.U, self.V, self.lbda, self.gamma, self.dim, 
-                   self.max_iters, self.shuffle, self.seed, train_sample_users, sample_user_data)
+                   self.max_iters, self.shuffle, self.seed, train_sample_users, sample_user_data, 1)
 
     def compute_mrr(self, testdata):
         return compute_mrr_fast(np.array(range(testdata.shape[0]), dtype=np.int32), np.array([np.array(testdata.getrow(i).indices, dtype=np.int32) for i in range(testdata.shape[0])]), self.U, self.V)

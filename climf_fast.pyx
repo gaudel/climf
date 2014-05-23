@@ -98,7 +98,8 @@ def climf_fast(CSRDataset dataset,
                int shuffle,
                int seed,
                np.ndarray[int, ndim=1, mode='c'] sample_user_ids,
-               np.ndarray sample_user_data):
+               np.ndarray sample_user_data,
+               int verbose):
 
     # get the data information into easy vars
     cdef Py_ssize_t n_samples = dataset.n_samples
@@ -169,9 +170,9 @@ def climf_fast(CSRDataset dataset,
             # U[i] += gamma*dU
             for idx in range(n_factors):
                 U[i, idx] += gamma * dU[idx]
-
-        print 'iteration {0}:'.format(t+1)
-#        print 'train mrr = {0:.8f}'.format(compute_mrr_fast(sample_user_ids, sample_user_data, U, V))
+        if verbose == 1:
+            print 'iteration {0}:'.format(t+1)
+            print 'train mrr = {0:.8f}'.format(compute_mrr_fast(sample_user_ids, sample_user_data, U, V))
 
 
 def safe_climf_fast(CSRDataset dataset,
@@ -184,7 +185,8 @@ def safe_climf_fast(CSRDataset dataset,
                int shuffle,
                int seed,
                np.ndarray[int, ndim=1, mode='c'] sample_user_ids,
-               np.ndarray sample_user_data):
+               np.ndarray sample_user_data,
+               int verbose):
 
     # get the data information into easy vars
     cdef Py_ssize_t n_samples = dataset.n_samples
@@ -271,8 +273,9 @@ def safe_climf_fast(CSRDataset dataset,
             for idx in range(n_factors):
                 U[i, idx] += gamma * dU[idx]
 
-        print 'iteration {0}:'.format(t+1)
-#        print 'train mrr = {0:.8f}'.format(compute_mrr_fast(sample_user_ids, sample_user_data, U, V))
+        if verbose == 1:
+            print 'iteration {0}:'.format(t+1)
+            print 'train mrr = {0:.8f}'.format(compute_mrr_fast(sample_user_ids, sample_user_data, U, V))
 
 
 cdef class CSRDataset:
